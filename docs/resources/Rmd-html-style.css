@@ -1,0 +1,79 @@
+body {
+	//background-color: antiquewhite;
+	background-color: #62ABFE;
+	counter-reset: section;
+}
+#TOC {
+	margin: 25px 0px 20px 0px;
+	box-shadow: 0px 3px 20px #333;
+}
+
+.toc-content {
+    padding-left: 30px;
+    padding-right: 40px;
+    background-color: white;
+    box-shadow: 0px 3px 20px #333;
+}
+
+h1, h2 {
+	color: #3E769A;
+}
+
+h1 {
+	counter-reset: subsection;
+}
+h2 {
+	counter-reset: subsubsection;
+}
+/*need the exclusion for ghost tabset breaks*/
+div.section:not(.unnumbered) > h1:not(.title):before { 
+	counter-increment: section 1;
+	content: "Section " counter(section, decimal) ": ";
+}
+div.section:not(.unnumbered) > h2::before { 
+  counter-increment: subsection;
+  content: counter(section) ":" counter(subsection) " ";
+}
+
+div.section:not(.unnumbered) > h3::before { 
+  counter-increment: subsubsection;
+  content: counter(section) ":" counter(subsubsection) " ";
+}
+
+
+img.pdf {
+	background: #FFFFFF;
+    border: 1pt solid black;
+    padding: 5px;
+    box-shadow: 2px 2px 12px -5px #999999;
+}
+
+.knitr {
+	display: block;
+    padding: 9.5px;
+    margin: 0 0 10px;
+    font-size: 13px;
+    line-height: 1.42857143;
+    word-break: break-all;
+    word-wrap: break-word;
+    color: #333333;
+    background-color: #f5f5f5;
+    border: 1px solid #cccccc;
+    border-radius: 4px;
+}
+
+table.table-condensed  {background:#e8f1f6;text-align:left;border:0;border-spacing:0;}
+table.table-condensed th {display:table-header;color:white;font-size:1em;font-weight: bold; border:1.0pt solid rgb(0,0,127);padding:3.6pt 5pt;background:rgb(0,120,230) none repeat scroll 0% 50%;}
+table.table-condensed td {padding:3pt;border-left: 1.0pt solid rgb(0,0,127);border-right: 1.0pt solid rgb(0,0,127);border-bottom: 1.0pt solid rgb(0,0,127)}
+
+.column {
+	display:inline-grid;
+}
+.center{
+	text-align:center;
+}
+
+.column pre {
+	text-align:left;
+}
+

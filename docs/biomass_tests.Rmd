@@ -1,0 +1,438 @@
+---
+title: "Exploration of biomass modelling options"
+author: "Murray Logan"
+date: "`r format(Sys.time(), '%d %B, %Y')`"
+output:
+  html_document:
+    code_folding: show
+    collapse: no
+    df_print: paged
+    fig_caption: yes
+    fig_height: 4
+    fig_width: 4
+    highlight: textmate
+    theme: spacelab
+    toc: yes
+    toc_float: yes
+    css: resources/Rmd-html-style.css
+  pdf_document:
+    df_print: default
+    fig_caption: yes
+    fig_height: 4
+    fig_width: 4
+    highlight: tango
+    latex_engine: xelatex
+    number_sections: yes
+    toc_depth: 2
+  word_document:
+    fig_caption: yes
+    fig_height: 4
+    fig_width: 4
+    highlight: tango
+    toc: yes
+    toc_depth: 2
+output_dir: "docs"
+documentclass: article
+fontsize: 12pt
+mainfont: Arial
+mathfont: LiberationMono
+monofont: DejaVu Sans Mono
+classoption: a4paper
+---
+
+```{r setup, include=FALSE, warnings=FALSE, message=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning=FALSE, message=FALSE)
+options(tinytex.engine = 'xelatex')
+knitr::read_chunk('../scripts/biomass_tests.R')
+```
+
+# Synopsis
+
+The intention of this document and associated R script is to motivate
+a discussion about options for modelling fish biomass.  The AIMS
+Long-term monitoring program collects fish Abundance and length data
+annually from a fixed set of transects (within sites within reefs).
+Whilst, we can (and do) model fish Abundance, there is a strong desire
+to express fish trends in terms of biomass.
+
+Biomass is not directly measured.  Rather, it is calculated from
+Abundances and lengths (the exact calculations vary from species to
+species).  Since biomass is calculated from both Abundance and Length,
+it has a mixture of count and length properties.  Specifically, it is
+comprises of continous positive values as well as substantial zero
+values (likely to be false positives associated with imperfect
+detection).
+
+This document will explore options for modelling such data by first
+attempting to simulate relatively complex and messy data.  Thereafter,
+there will be attempts to fit models to explore temporal trends in
+both Abundance and Biomass.
+
+
+# Package setup
+
+```{r libraries, warnings=FALSE, message=FALSE, results='hide'}
+```
+
+```{r dirs, results='markdown', eval=TRUE, echo=FALSE}=
+```
+
+
+# Data simulation
+
+The observed data will comprise of:
+
+- a hierarchical sampling design in which there are five transects
+  nested within sites each of three sites which are in turn nested
+  within each of reefs 10.
+- along each transect, whenever a group of fish are detected (= 1 or
+  more individuals of the same species), the species and number of
+  individuals along with the approximate average body length are
+  recorded
+  
+ | Reef | Site | Transect | Species | Year | Abundance | Length |
+ |------|------|----------|---------|------|-----------|--------|
+ |      |      |          |         |      |           |        |
+ 
+**Note**, since fish are recorded in groups, a single species in a
+transect might be represented by multiple rows (one for each
+encountered groups.)
+
+<details><summary>Details of the data synthesis</summary>
+
+1. Lets start by defining the spatial design (6 Reefs, each with 3
+   Sites, each with 5 transects)
+
+```{r synthetic-data-1, results='markdown', eval=TRUE}
+```
+2. Now for each of eight fish species, we will define separate splines
+   that represent the different temporal trends of each species
+
+```{r synthetic-data-2, results='markdown', eval=TRUE, figwidth=6, fig.height=3}
+```
+
+3. propogate these splines (with 10 evenly spaced time units) in the
+   data to create a wide data set before pivoting into a long data set
+
+```{r synthetic-data-3, results='markdown', eval=TRUE, fig.width=6, fig.height=3}
+```
+
+**Note** currently, the temporal patterns for each species are the same within each transect
+
+4. currently, the synthetic data comprises the full temporal series
+   for each species on each transect.  A fish sampling program will
+   typically not encounter every species of fish within each transect
+   on each sampling occassion - either because not every species
+   occurs at each location or simply that each species are not
+   encountered every time.  Furthermore, fish are often encounted in
+   schools or groups.
+   
+   To mimic this, we will subsample the species within each
+   transect/period (the number of groups of fish encountered will be
+   drawn from a Poisson distribution.  Subsampling will be biased such
+   that the probability of selecting (encountering) a species is
+   proportional to its id number (e.g. Species 8 is much more common
+   than Species 1).
+
+```{r synthetic-data-4, results='markdown', eval=TRUE}
+```
+
+5. fish counts should follow a Poisson (or Negative Binomial)
+   distribution.  This does however assume perfect detection.  When
+   detectibility is not 100%, the observed data are likely to be zero
+   inflated (whereby some absences really reflect an inability to
+   detect the fish rather than true absenses of fish).
+   
+   To simulate this, we will generate zero-inflated Poisson data in
+   which the probability of a false zero (failure to detect) is 0.2
+   and the count process is governed by a linear predictor comprising:
+   
+   - the species specific temporal trend
+   - the reef, site and transect effects
+   - a species abundance multiplier
+   
+   At the same time, we also want to collect average fish lengths of
+   the encountered groups of fish.  In doing so, we might assume that
+   the more common fish would be smaller than the less common fish, so
+   we will draw the fish lengths out of a gamma distribution whose
+   mean is inversely proportional to the Species number and dispersion
+   is equal to 1)
+
+```{r synthetic-data-5, results='markdown', eval=TRUE, fig.width=7, fig.height=5}
+```
+
+</details>
+
+
+The following interactive graphic provides a way to explore the
+temporal trend of fish Abundance within each Transect conditional on
+Species.  The dropdown selector provides a way to filter to specific
+sites.
+
+```{r interactive_fig1, results='markdown', eval=TRUE}
+```
+
+
+```{r interactive_fig2, results='markdown', eval=TRUE, fig.width=8, figh.height=10}
+```
+
+
+
+# Data processing
+
+Although we could fit models to explore the temporal patterns in fish
+Abundance, we might alternatively be more interested in exploring
+patterns of biomass.  For many fish species, biomass can be calculated
+from counts and lengths accouding to the formula
+
+$$
+biomass = a\times abundance\times length^b
+$$
+
+where $abundance$ and $length$ are the observed number of average
+length of fish in a group and $a$ and $b$ arespecies specific
+coefficients obtained from the fishbase database.
+
+We are primarily interested in biomass as a sum across all encountered
+species, yet we must fist calculated the biomass of fish in each
+encountered group of fish using the above formula and species specific
+coefficients.
+
+```{r data-processing, results='markdown', eval=TRUE}
+```
+
+# Modelling options
+
+## Abundance {.tabset .tabset-faded}
+
+### ZINB (glmmTMB) {.tabset .tabset-pills}
+
+::: {width="100%"}
+
+#### Fit model
+
+```{r fitModel_zinb, results='markdown', eval=TRUE, fig.width=8, fig.height=5, cache=TRUE}
+```
+
+#### Explore diagnostics
+
+```{r fitModel_zinb_diagnostics, results='markdown', eval=TRUE, fig.width=8, fig.height=5, cache=TRUE}
+```
+
+**Conclusions:**
+
+- no evidence of dispersion issues
+- residual plot looks good
+- no evidence of zero-inflation
+
+#### Summarise model
+
+```{r fitModel_zinb_summary, results='markdown', eval=TRUE, fig.width=8, fig.height=5, cache=TRUE}
+```
+
+:::
+
+::: {width="100%"}
+
+```{r fitModel_zinb_fig, results='markdown', eval=TRUE, fig.width=8, fig.height=5, cache=TRUE}
+```
+
+:::
+
+### ZINB (INLA) {.tabset .tabset-pills}
+
+::: {width="100%"}
+
+#### Fit model
+
+```{r fitModel_zinb_INLA, results='markdown', eval=TRUE, fig.width=8, fig.height=5, cache=TRUE}
+```
+
+#### Explore diagnostics
+
+```{r fitModel_zinb_INLA_posteriors, results='markdown', eval=TRUE, cache=TRUE, fig.width=8, fig.height=5}
+```
+
+#### Summarise model
+
+```{r fitModel_zinb_INLA_summary, results='markdown', eval=TRUE, cache=TRUE, fig.width=8, fig.height=5}
+```
+
+:::
+
+::: {width="100%"}
+
+```{r fitModel_zinb_INLA_fig, results='markdown', eval=TRUE, fig.width=8, fig.height=5, cache=TRUE}
+```
+
+:::
+
+
+### ZINB (brms) {.tabset .tabset-pills}
+
+::: {width="100%"}
+
+#### Fit model
+
+```{r fitModel_zinb_brm, results='markdown', eval=FALSE, fig.width=8, fig.height=5, cache=FALSE}
+```
+
+#### Explore MCMC diagnostics
+
+```{r fitModel_zinb_brm_MCMCdiagnostics, results='markdown', eval=TRUE, fig.width=8, fig.height=5, cache=TRUE}
+```
+
+#### Explore residual diagnostics
+
+```{r fitModel_zinb_brm_diagnostics, results='markdown', eval=TRUE, fig.width=8, fig.height=5, cache=TRUE}
+```
+
+**Conclusions:**
+
+- no evidence of dispersion issues
+- residual plot looks good
+- no evidence of zero-inflation
+
+
+#### Summarise model
+
+```{r fitModel_zinb_brm_summary, results='markdown', eval=TRUE, fig.width=8, fig.height=5, cache=TRUE}
+```
+
+:::
+
+::: {width="100%"}
+
+```{r fitModel_zinb_brm_fig, results='markdown', eval=TRUE, fig.width=8, fig.height=5, cache=TRUE}
+load(file='../data/mod.brm.RData')
+emmeans(mod.brm, ~fYEAR, type='response') %>%
+    as.data.frame %>%
+    ggplot(aes(y=prob, x=as.numeric(fYEAR))) +
+    geom_ribbon(aes(ymin=lower.HPD, ymax=upper.HPD), alpha=0.3) +
+    geom_line()
+```
+
+:::
+
+## Biomass {.tabset .tabset-faded}
+
+### Delta method (INLA) {.tabset .tabset-pills}
+
+::: {width="100%"}
+
+#### Fit model
+
+I gave up on the following model.  It had been running for 30 minutes...
+
+```{r fitModel_tweedie_INLA, results='markdown', eval=FALSE, fig.width=8, fig.height=5, cache=FALSE}
+```
+
+:::
+
+
+### Delta method (INLA) {.tabset .tabset-pills}
+
+::: {width="100%"}
+
+#### Fit model
+
+```{r fitModel_detla_INLA, results='markdown', eval=TRUE, fig.width=8, fig.height=5, cache=FALSE}
+```
+
+:::
+
+::: {width="100%"}
+
+```{r fitModel_delta_INLA_fig, results='markdown', eval=TRUE, fig.width=8, fig.height=5, cache=TRUE}
+```
+
+:::
+
+### Tweedie method (mgcv) {.tabset .tabset-pills}
+
+::: {width="100%"}
+
+#### Fit model
+
+```{r fitModel_tweedie_mgcv, results='markdown', eval=TRUE, fig.width=8, fig.height=5, cache=TRUE}
+```
+
+#### Explore diagnostics
+
+```{r fitModel_tweedie_mgcv_diagnostics, results='markdown', eval=TRUE, fig.width=8, fig.height=5, cache=TRUE}
+```
+
+
+#### Summarise model
+
+```{r fitModel_tweedie_mgcv_summary, results='markdown', eval=TRUE, fig.width=8, fig.height=5, cache=TRUE}
+```
+
+:::
+
+::: {width="100%"}
+
+```{r fitModel_tweedie_mgcv_fig, results='markdown', eval=TRUE, fig.width=8, fig.height=5, cache=TRUE}
+```
+
+:::
+
+
+
+### Tweedie (glmmTMB) {.tabset .tabset-pills}
+
+::: {width="100%"}
+
+#### Fit model
+
+```{r fitModel_tweedie_glmmTMB, results='markdown', eval=TRUE, fig.width=8, fig.height=5, cache=TRUE}
+```
+
+#### Explore diagnostics
+
+```{r fitModel_tweedie_glmmTMB_diagnostics, results='markdown', eval=TRUE, fig.width=8, fig.height=5, cache=TRUE}
+```
+
+#### Summarise model
+
+```{r fitModel_tweedie_glmmTMB_summary, results='markdown', eval=TRUE, fig.width=8, fig.height=5, cache=TRUE}
+```
+
+:::
+
+::: {width="100%"}
+
+```{r fitModel_tweedie_glmmTMB_fig, results='markdown', eval=TRUE, fig.width=8, fig.height=5, cache=TRUE}
+```
+
+:::
+
+### ziGamma (glmmTMB) {.tabset .tabset-pills}
+
+::: {width="100%"}
+
+#### Fit model
+
+Note, this takes a while
+
+```{r fitModel_zigamma_glmmTMB, results='markdown', eval=TRUE, fig.width=8, fig.height=5, cache=TRUE}
+```
+
+#### Explore diagnostics
+
+```{r fitModel_zigamma_glmmTMB_diagnostics, results='markdown', eval=TRUE, fig.width=8, fig.height=5, cache=TRUE}
+```
+
+#### Summarise model
+
+```{r fitModel_zigamma_glmmTMB_summary, results='markdown', eval=TRUE, fig.width=8, fig.height=5, cache=TRUE}
+```
+
+:::
+
+::: {width="100%"}
+
+```{r fitModel_zigamma_glmmTMB_fig, results='markdown', eval=TRUE, fig.width=8, fig.height=5, cache=TRUE}
+```
+
+:::
